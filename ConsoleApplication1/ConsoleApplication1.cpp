@@ -119,26 +119,26 @@ void holdPiece()
 	}
 }
 
-void setScore(std::string sc)
+void createAndSetText(std::string str, SDL_Texture** texToWrite, float* w, float* h)
 {
-	SDL_Surface* surf = TTF_RenderText_Blended(font, ("Score " + sc).c_str(), {255,255,255,255});
-	if (score)
-		SDL_DestroyTexture(score);
-	score = SDL_CreateTextureFromSurface(Globals::renderer,surf);
-	scoreW = surf->w;
-	scoreH = surf->h;
+	if (*texToWrite)
+		SDL_DestroyTexture(*texToWrite);
+	SDL_Surface* surf = TTF_RenderText_Blended(font, str.c_str(), {255,255,255,255});
+	*texToWrite = SDL_CreateTextureFromSurface(Globals::renderer,surf);
+	*w = surf->w;
+	*h = surf->h;
 	SDL_FreeSurface(surf);
 }
 
+void setScore(std::string sc)
+{
+	createAndSetText("Score " + sc, &score, &scoreW, &scoreH);
+}
+
+
 void setLevel(std::string lvl)
 {
-	SDL_Surface* surf = TTF_RenderText_Blended(font, ("Level " + lvl).c_str(), {255,255,255,255});
-	if (levelt)
-		SDL_DestroyTexture(levelt);
-	levelt = SDL_CreateTextureFromSurface(Globals::renderer,surf);
-	levelW = surf->w;
-	levelH = surf->h;
-	SDL_FreeSurface(surf);
+	createAndSetText("Level " + lvl, &levelt, &levelW, &levelH);
 }
 
 void setMid(std::string mid)
@@ -203,6 +203,8 @@ void toClipboard(const std::string& s) {
 	GlobalFree(hg);
 }
 
+bool playing = false;
+
 float currentTime = 0;
 float simulatedTime = 0;
 
@@ -239,6 +241,10 @@ int findLaneOfPiece(int pieceY) {
 	}
 	return -1;
 }
+
+SDL_Texture* tetrisText;
+SDL_Texture* highscore;
+SDL_Texture* pressToPlay;
 
 Tetromino* lowestPos() {
 	Tetromino* copy = new Tetromino();
@@ -321,6 +327,11 @@ void resortLanes()
 	}
 }
 
+bool gameover = false;
+std::fstream high;
+float lastHighscore;
+
+
 void placePiece()
 {
 	usedHold = false;
@@ -334,9 +345,24 @@ void placePiece()
 		if (lane == -1) // game over
 		{
 			std::cout << "GAME OVER!" << std::endl;
+			gameover = true;
+			if (_score > lastHighscore)
+			{
+				high.close();
+				DeleteFileA("highscore.dat");
+				std::ofstream outfile ("highscore.dat");
+				outfile << _score << std::endl;
+				outfile.close();
+				high.open("highscore.dat");
+			}
+			setMid("Game over!");
 			for(int i = 0; i < 21; i++)
 			{
-				groundedPieces[i].clear();
+				for(int p = 0; p < groundedPieces[i].size(); p++)
+				{
+					TetrominoPiece& pi = groundedPieces[i][p];
+					pi.color = {60,60,60,255};
+				}
 			}
 			return;
 		}
@@ -415,6 +441,38 @@ int WinMain(HINSTANCE hInstance,
 	setScore("0");
 	setLevel("1");
 
+	float hscore = 0;
+
+	float logoW, logoH;
+	float pressW, pressH;
+	float highscoreW, highscoreH;
+
+	high.open("highscore.dat");
+
+	if (!high.is_open())
+	{
+		std::ofstream outfile ("highscore.dat");
+		std::cout << "creating new file" << std::endl;
+		outfile << "0" << std::endl;
+		outfile.close();
+		high.open("highscore.dat");
+	}
+
+	createAndSetText("Tetris!", &tetrisText, &logoW, &logoH);
+
+	createAndSetText("Press space to play", &pressToPlay, &pressW, &pressH);
+
+
+	std::string line;
+	while(std::getline(high, line))
+	{
+		hscore = std::stoi(line); // if it isn't a number then bruh moment
+		lastHighscore = hscore;
+		break;
+	}
+
+	createAndSetText("Highscore " + std::to_string((int)hscore), &highscore, &highscoreW, &highscoreH);
+
 	createTetr(rand() % 6);
 
 	bool skip = false;
@@ -426,7 +484,6 @@ int WinMain(HINSTANCE hInstance,
 		SDL_RenderClear(renderer);
 		SDL_Event event;
 
-
 		while (SDL_PollEvent(&event) > 0)
 		{
 			switch (event.type) {
@@ -434,53 +491,101 @@ int WinMain(HINSTANCE hInstance,
 					run = false;
 					break;
 				case SDL_KEYDOWN:
-					switch (event.key.keysym.sym)
+					if (playing)
 					{
-					case SDLK_UP:
-						if (faillingTetr)
+						switch (event.key.keysym.sym)
 						{
-							rotateTime = 500;
-							faillingTetr->rotate();
-							checkBoardCol();
-						}
+						case SDLK_UP:
+							if (faillingTetr)
+							{
+								rotateTime = 500;
+								faillingTetr->rotate();
+								checkBoardCol();
+							}
+							break;
+						case SDLK_LEFT:
+							if (faillingTetr)
+							{
+								faillingTetr->rect.x -= 16;
+								checkBoardCol();
+							}
+							break;
+						case SDLK_RIGHT:
+							if (faillingTetr)
+							{
+								faillingTetr->rect.x += 16;
+								checkBoardCol();
+							}
+							break;
+						case SDLK_ESCAPE:
+							for(int i = 0; i < 21; i++)
+								groundedPieces[i].clear();
+							playing = false;
+							line = "";
+							while(std::getline(high, line))
+							{
+								hscore = std::stoi(line); // if it isn't a number then bruh moment
+								lastHighscore = hscore;
+								break;
+							}
+
+							createAndSetText("Highscore " + std::to_string((int)hscore), &highscore, &highscoreW, &highscoreH);
+
+							break;
+						case SDLK_DOWN:
+							if (!gameover)
+							{
+								rotateTime = 500;
+								skip = true;
+							}
+							break;
+						case SDLK_c:
+							if (!gameover)
+								holdPiece();
+							break;
+						case SDLK_SPACE:
+							if (!gameover)
+							{
+								Tetromino* lowestPiece = lowestPos();
+
+								faillingTetr->rect.y = lowestPiece->rect.y;
+
+								delete lowestPiece;
+
+								if (faillingTetr)
+								{
+									std::cout << "place" << std::endl;
+									placePiece();
+
+									delete faillingTetr;
+									faillingTetr = nullptr;
+								}
+							}
+							break;
+						case SDLK_RETURN:
+							if (gameover)
+							{
+								gameover = false;
+								for(int i = 0; i < 21; i++)
+									groundedPieces[i].clear();
+								setMid("Start!");
+								_score = 0;
+								level = 0;
+								setScore(std::to_string(_score));
+								setScore(std::to_string(level + 1));
+							}
 						break;
-					case SDLK_LEFT:
-						if (faillingTetr)
+						}
+					}
+					else
+					{
+						switch (event.key.keysym.sym)
 						{
-							faillingTetr->rect.x -= 16;
-							checkBoardCol();
+							case SDLK_SPACE:
+							playing = true;
+							setMid("Start!");
+							break;
 						}
-						break;
-					case SDLK_RIGHT:
-						if (faillingTetr)
-						{
-							faillingTetr->rect.x += 16;
-							checkBoardCol();
-						}
-						break;
-					case SDLK_DOWN:
-						rotateTime = 500;
-						skip = true;
-						break;
-					case SDLK_c:
-						holdPiece();
-						break;
-					case SDLK_SPACE:
-						Tetromino* lowestPiece = lowestPos();
-
-						faillingTetr->rect.y = lowestPiece->rect.y;
-
-						delete lowestPiece;
-
-						if (faillingTetr)
-						{
-							std::cout << "place" << std::endl;
-							placePiece();
-
-							delete faillingTetr;
-							faillingTetr = nullptr;
-						}
-						break;
 					}
 					break;
 				case SDL_KEYUP:
@@ -495,204 +600,243 @@ int WinMain(HINSTANCE hInstance,
 		
 
 		}
-
-		SDL_FRect scoreDst;
-		scoreDst.x = (boardX - scoreW) -24;
-		scoreDst.y = 192;
-		scoreDst.w = scoreW;
-		scoreDst.h = scoreH;
-
-		SDL_FRect lvlDst;
-		lvlDst.x = (boardX - levelW) -24;
-		lvlDst.y = (192 + scoreH) + 24;
-		lvlDst.w = levelW;
-		lvlDst.h = levelH;
-
-		SDL_RenderCopyF(Globals::renderer,score,NULL,&scoreDst);
-		SDL_RenderCopyF(Globals::renderer,levelt,NULL,&lvlDst);
-
-		float prog = 0;
-		if (mTime > 0)
-			prog = (mTime / 500);
-		
-		if (middleText)
+		if (playing)
 		{
+			SDL_FRect scoreDst;
+			scoreDst.x = (boardX - scoreW) -24;
+			scoreDst.y = 192;
+			scoreDst.w = scoreW;
+			scoreDst.h = scoreH;
+
+			SDL_FRect lvlDst;
+			lvlDst.x = (boardX - levelW) -24;
+			lvlDst.y = (192 + scoreH) + 24;
+			lvlDst.w = levelW;
+			lvlDst.h = levelH;
+
+			SDL_RenderCopyF(Globals::renderer,score,NULL,&scoreDst);
+			SDL_RenderCopyF(Globals::renderer,levelt,NULL,&lvlDst);
+
+			if (score == NULL)
+			std::cout << "score is null" << std::endl;
+
+			float prog = 0;
 			if (mTime > 0)
-				mTime -= deltaTime * 0.6;
-			SDL_SetTextureAlphaMod(middleText, prog * 255);
-
-			SDL_FRect midDst;
-			midDst.x = 432 - (midW / 2);
-			midDst.y = 336 - (midH / 2);
-			midDst.w = midW;
-			midDst.h = midH;
-
-			SDL_RenderCopyF(Globals::renderer,middleText,NULL,&midDst);
-		}
-		currentTime += deltaTime;
-
-		if (rotateTime > 0)
-		{
-			rotateTime -= deltaTime;
-		}
-
-		if (faillingTetr)
-		{
-			ghostTetr = lowestPos();
+				prog = (mTime / 500);
 			
-			for(int i = 0; i < ghostTetr->pieces.size(); i++)
+			if (middleText && !gameover)
 			{
-				TetrominoPiece& piece = ghostTetr->pieces[i];
-				piece.color.r = 255;
-				piece.color.g = 255;
-				piece.color.b = 255;
-				piece.color.a = 128;
+				if (mTime > 0)
+					mTime -= deltaTime * 0.6;
+				SDL_SetTextureAlphaMod(middleText, prog * 255);
 			}
 
-			// collision
+			currentTime += deltaTime;
 
-			bool die = false;
-			bool willGoUnder = false;
-			for (TetrominoPiece piece : faillingTetr->pieces)
+			if (rotateTime > 0)
 			{
-				if (faillingTetr->rect.y + piece.rect.y >= bottomBoard - 16)
-					willGoUnder = true;
+				rotateTime -= deltaTime;
 			}
 
-			for (int i = 0; i < 21; i++)
+			if (faillingTetr && !gameover)
 			{
-				for (TetrominoPiece& piece : groundedPieces[i])
+				ghostTetr = lowestPos();
+				
+				for(int i = 0; i < ghostTetr->pieces.size(); i++)
 				{
-					if (faillingTetr->checkCol(piece))
-					{
+					TetrominoPiece& piece = ghostTetr->pieces[i];
+					piece.color.r = 255;
+					piece.color.g = 255;
+					piece.color.b = 255;
+					piece.color.a = 128;
+				}
+
+				// collision
+
+				bool die = false;
+				bool willGoUnder = false;
+				for (TetrominoPiece piece : faillingTetr->pieces)
+				{
+					if (faillingTetr->rect.y + piece.rect.y >= bottomBoard - 16)
 						willGoUnder = true;
+				}
+
+				for (int i = 0; i < 21; i++)
+				{
+					for (TetrominoPiece& piece : groundedPieces[i])
+					{
+						if (faillingTetr->checkCol(piece))
+						{
+							willGoUnder = true;
+						}
 					}
 				}
-			}
-			if (!willGoUnder)
-			{
-				if (!skip)
-					while (currentTime > simulatedTime)
+				if (!willGoUnder)
+				{
+					if (!skip)
+						while (currentTime > simulatedTime)
+						{
+							faillingTetr->storeY++;
+							faillingTetr->rect.y = align(faillingTetr->storeY, 16);
+							simulatedTime += 1 / cellFrames[level][0];
+							rotateTime = 500;
+						}
+
+					if (skip && SDL_GetTicks() % 10 == 0)
 					{
+						rotateTime = 500;
 						faillingTetr->storeY++;
 						faillingTetr->rect.y = align(faillingTetr->storeY, 16);
-						simulatedTime += 1 / cellFrames[level][0];
-						rotateTime = 500;
 					}
-
-				if (skip && SDL_GetTicks() % 10 == 0)
-				{
-					rotateTime = 500;
-					faillingTetr->storeY++;
-					faillingTetr->rect.y = align(faillingTetr->storeY, 16);
 				}
-			}
 
-			for (int i = 0; i < 21; i++)
-			{
-				for (TetrominoPiece& piece : groundedPieces[i])
+				for (int i = 0; i < 21; i++)
 				{
-					if (faillingTetr->checkCol(piece))
+					for (TetrominoPiece& piece : groundedPieces[i])
 					{
-						faillingTetr->rect.y -= 16;
+						if (faillingTetr->checkCol(piece))
+						{
+							faillingTetr->rect.y -= 16;
+							placePiece();
+							die = true;
+							break;
+						}
+					}
+				}
+
+
+				for (TetrominoPiece piece : faillingTetr->pieces)
+				{
+					if (faillingTetr->rect.y + piece.rect.y >= bottomBoard - 16 && rotateTime <= 0)
+					{
 						placePiece();
+						faillingTetr->rect.y = bottomBoard - 16;
 						die = true;
 						break;
 					}
 				}
+
+				if (die)
+				{
+					delete faillingTetr;
+					faillingTetr = nullptr;
+				}
+
+				if (faillingTetr)
+				{
+					faillingTetr->draw();
+					ghostTetr->draw();
+				}
+				
+
+			}
+			else
+			{
+				if (!gameover)
+					createTetr(rand() % 6);
 			}
 
-
-			for (TetrominoPiece piece : faillingTetr->pieces)
+			for (int i = 0; i < 21; i++)
 			{
-				if (faillingTetr->rect.y + piece.rect.y >= bottomBoard - 16 && rotateTime <= 0)
+				for (TetrominoPiece& piece : groundedPieces[i])
 				{
-					placePiece();
-					faillingTetr->rect.y = bottomBoard - 16;
-					die = true;
-					break;
+					SDL_SetRenderDrawColor(Globals::renderer, piece.color.r, piece.color.g, piece.color.b, piece.color.a);
+					SDL_FRect newRect;
+					newRect.x = piece.rect.x;
+					newRect.y = piece.rect.y;
+					newRect.w = piece.rect.w;
+					newRect.h = piece.rect.h;
+					SDL_RenderFillRectF(Globals::renderer, &newRect);
+					SDL_SetRenderDrawColor(Globals::renderer, 0, 0, 0, 255);
+					SDL_RenderDrawRectF(Globals::renderer, &newRect);
 				}
 			}
 
-			if (die)
+			if (middleText)
 			{
-				delete faillingTetr;
-				faillingTetr = nullptr;
+				SDL_FRect midDst;
+				midDst.x = 432 - (midW / 2);
+				midDst.y = 336 - (midH / 2);
+				midDst.w = midW;
+				midDst.h = midH;
+
+				SDL_RenderCopyF(Globals::renderer,middleText,NULL,&midDst);
 			}
 
-			if (faillingTetr)
+
+			// render box
+
+			bool remove = false;
+			int index = 0;
+
+			for(Globals::lineClearAnim& anim : lineClearAnims)
 			{
-				faillingTetr->draw();
-				ghostTetr->draw();
+				anim.time += deltaTime * 5;
+				float f = anim.time / anim.dur;
+				float alphaValue = 255 - (255 * f);
+				SDL_SetRenderDrawColor(Globals::renderer,255,255,255,alphaValue);
+				SDL_RenderFillRectF(Globals::renderer,&anim.rect);
+				if (f >= 1)
+				{
+					remove = true;
+				}
+				index++;
 			}
-			
+			if (remove)
+			{
+				lineClearAnims.erase(lineClearAnims.begin() + index - 1);
+			}
+
+			SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+
+			SDL_FPoint p[4];
+
+			p[0].x = boardX;
+			p[0].y = 192;
+			p[1].x = boardX;
+			p[1].y = bottomBoard;
+			p[2].x = boardX + 160;
+			p[2].y = bottomBoard;
+			p[3].x = boardX + 160;
+			p[3].y = 192;
+
+			SDL_RenderDrawLinesF(renderer, p, 4);
 
 		}
 		else
 		{
-			createTetr(rand() % 6);
+			SDL_FRect tetrisDst;
+			tetrisDst.x = 440 - ((logoW * 2) / 2);
+			tetrisDst.y = 235 - ((logoH * 2) / 2);
+			tetrisDst.w = logoW * 2;
+			tetrisDst.h = logoH * 2;
+
+			SDL_RenderCopyF(renderer,tetrisText,NULL,&tetrisDst);
+
+			SDL_FRect hscoreDst;
+			hscoreDst.x = 432 - (highscoreW / 2);
+			hscoreDst.y = 350 - (highscoreH / 2);
+			hscoreDst.w = highscoreW;
+			hscoreDst.h = highscoreH;
+
+			SDL_RenderCopyF(renderer,highscore,NULL,&hscoreDst);
+
+			SDL_FRect pressToPlayDst;
+			pressToPlayDst.x = 432 - (pressW / 2);
+			pressToPlayDst.y = 470 - (pressH / 2);
+			pressToPlayDst.w = pressW;
+			pressToPlayDst.h = pressH;
+
+			SDL_RenderCopyF(renderer,pressToPlay,NULL,&pressToPlayDst);
 		}
-
-		for (int i = 0; i < 21; i++)
-		{
-			for (TetrominoPiece& piece : groundedPieces[i])
-			{
-				SDL_SetRenderDrawColor(Globals::renderer, piece.color.r, piece.color.g, piece.color.b, piece.color.a);
-				SDL_FRect newRect;
-				newRect.x = piece.rect.x;
-				newRect.y = piece.rect.y;
-				newRect.w = piece.rect.w;
-				newRect.h = piece.rect.h;
-				SDL_RenderFillRectF(Globals::renderer, &newRect);
-				SDL_SetRenderDrawColor(Globals::renderer, 0, 0, 0, 255);
-				SDL_RenderDrawRectF(Globals::renderer, &newRect);
-			}
-		}
-		// render box
-
-		bool remove = false;
-		int index = 0;
-
-		for(Globals::lineClearAnim& anim : lineClearAnims)
-		{
-			anim.time += deltaTime * 5;
-			float f = anim.time / anim.dur;
-			float alphaValue = 255 - (255 * f);
-			SDL_SetRenderDrawColor(Globals::renderer,255,255,255,alphaValue);
-			SDL_RenderFillRectF(Globals::renderer,&anim.rect);
-			if (f >= 1)
-			{
-				remove = true;
-			}
-			index++;
-		}
-		if (remove)
-		{
-			lineClearAnims.erase(lineClearAnims.begin() + index - 1);
-		}
-
-		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-
-		SDL_FPoint p[4];
-
-		p[0].x = boardX;
-		p[0].y = 192;
-		p[1].x = boardX;
-		p[1].y = bottomBoard;
-		p[2].x = boardX + 160;
-		p[2].y = bottomBoard;
-		p[3].x = boardX + 160;
-		p[3].y = 192;
-
-		SDL_RenderDrawLinesF(renderer, p, 4);
-
-
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
 		SDL_RenderPresent(renderer);
 
 		deltaTime = SDL_GetTicks() - startTime;
 
 	}
+
+	high.close();
 
 	return 0;
 
