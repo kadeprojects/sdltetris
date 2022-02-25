@@ -15,7 +15,7 @@
 // 6 = purple
 // 7 = red
 
-const int tetrominos[7][8] = { {
+int tetrominos[7][8] = { {
 	{1},{1},{1},{1}, // 4 Wide
 	{0},{0},{0},{0}
 	},
@@ -64,7 +64,7 @@ const float cellFrames[16][1] = { // gotten from https://gamedev.stackexchange.c
 	{0.59},
 	{0.92},
 	{1.46},
-	{2.36},
+	{2.36}
 };
 
 float deltaTime = 0;
@@ -80,6 +80,17 @@ float scoreW, scoreH;
 SDL_Texture* score;
 float levelW, levelH;
 SDL_Texture* levelt;
+
+float startLevelW, startLevelH;
+SDL_Texture* startLevel;
+
+float lastIndex = -1;
+
+SDL_FRect scrollingRect;
+SDL_Rect scrollingSrc;
+
+SDL_Texture* startTexture;
+SDL_Texture* beforeTexture;
 
 float mTime;
 float midW, midH;
@@ -153,8 +164,23 @@ void setMid(std::string mid)
 	SDL_FreeSurface(surf);
 }
 
+bool random = false;
+
 void createTetr(int constructId) {
 	Tetromino* tetr = new Tetromino();
+
+	if (random)
+	{
+		for(int i = 0; i < 7; i++)
+		{
+			auto& ar = tetrominos[i];
+			std::cout << ar << std::endl;
+			for (int ii = 0; ii < 6; ii++)
+			{
+				ar[ii] = rand() % 7;
+			}
+		}
+	}
 
 	tetr->constructIndex = constructId;
 	tetr->rect.w = 16;
@@ -233,7 +259,7 @@ void checkBoardCol() {
 
 int findLaneOfPiece(int pieceY) {
 	int lane = pieceY - 192;
-	for (int i = 0; i < 21; i++)
+	for (int i = 0; i < 22; i++)
 	{
 		int laneMay = i * 16;
 		if (lane == laneMay)
@@ -396,7 +422,7 @@ void placePiece()
 	if (clears == 4)
 		_clears += 1.5;
 
-	if (level + 1 < 16 && _clears >= 15)
+	if (level + 1 < 9 && _clears >= 15)
 	{
 		level++;
 		setLevel(std::to_string(level + 1));
@@ -413,6 +439,50 @@ void placePiece()
 
 bool place = false;
 
+std::vector<Tetromino*> menuMinos;
+
+void createMinos()
+{
+	menuMinos.clear();
+	for(int y = 0; y < 10; y++)
+	{
+		for(int i = 0; i < 10; i++)
+		{
+			Tetromino* tetr = new Tetromino();
+			tetr->constructIndex = rand() % 6;
+			tetr->rect.w = 16;
+			tetr->rect.h = 16;
+
+			int colIndex = 0;
+			int lanes = 1;
+
+			for (int ii = 0; ii < 4; ii++)
+			{
+				int piece = tetrominos[tetr->constructIndex][ii];
+				int bottomPiece = tetrominos[tetr->constructIndex][ii + 4];
+				if (piece != 0)
+					tetr->addPiece(0, colIndex, piece);
+				if (bottomPiece != 0)
+				{
+					tetr->addPiece(1, colIndex, bottomPiece);
+					lanes = 2;
+				}
+
+				if (piece != 0 || bottomPiece != 0)
+					colIndex++;
+
+			}
+			tetr->rect.w = colIndex * 16;
+			tetr->rect.h = lanes * 16;
+			tetr->rect.x = ((95 * i) + 35);
+			tetr->rect.y = ((95 * y) + 35);
+			tetr->storeY = y;
+			tetr->storeX = i;
+			menuMinos.push_back(tetr);
+		}	
+	}
+}
+
 int WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
 	PSTR lpCmdLine,
@@ -421,6 +491,9 @@ int WinMain(HINSTANCE hInstance,
 	srand((unsigned)time(0));
 	SDL_Init(SDL_INIT_EVERYTHING);
 	TTF_Init();
+
+	scrollingRect.x = 0;
+	scrollingRect.y = 0;
 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 
@@ -436,7 +509,7 @@ int WinMain(HINSTANCE hInstance,
 
 	bool run = true;
 
-	font = TTF_OpenFont("ARCADECLASSIC.TTF",24);
+	font = TTF_OpenFont("PublicPixel-0W6DP.TTF",18);
 
 	setScore("0");
 	setLevel("1");
@@ -462,6 +535,7 @@ int WinMain(HINSTANCE hInstance,
 
 	createAndSetText("Press space to play", &pressToPlay, &pressW, &pressH);
 
+	createAndSetText("Start Level " + std::to_string(level + 1) + "  Press left or right", &startLevel, &startLevelW, &startLevelH);
 
 	std::string line;
 	while(std::getline(high, line))
@@ -476,6 +550,9 @@ int WinMain(HINSTANCE hInstance,
 	createTetr(rand() % 6);
 
 	bool skip = false;
+	
+
+	createMinos();
 	
 
 	while (run)
@@ -517,6 +594,10 @@ int WinMain(HINSTANCE hInstance,
 								checkBoardCol();
 							}
 							break;
+						case SDLK_r:
+							random = !random;
+							setMid("Random toggled!");
+							break;
 						case SDLK_ESCAPE:
 							for(int i = 0; i < 21; i++)
 								groundedPieces[i].clear();
@@ -528,7 +609,8 @@ int WinMain(HINSTANCE hInstance,
 								lastHighscore = hscore;
 								break;
 							}
-
+							level = 0;
+							createAndSetText("Start Level " + std::to_string(level + 1) + "  Press left or right", &startLevel, &startLevelW, &startLevelH);
 							createAndSetText("Highscore " + std::to_string((int)hscore), &highscore, &highscoreW, &highscoreH);
 
 							break;
@@ -571,8 +653,8 @@ int WinMain(HINSTANCE hInstance,
 								setMid("Start!");
 								_score = 0;
 								level = 0;
-								setScore(std::to_string(_score));
-								setScore(std::to_string(level + 1));
+								setScore("0");
+								setLevel("1");
 							}
 						break;
 						}
@@ -584,6 +666,26 @@ int WinMain(HINSTANCE hInstance,
 							case SDLK_SPACE:
 							playing = true;
 							setMid("Start!");
+							setLevel(std::to_string(level + 1));
+							if (faillingTetr)
+							{
+								delete faillingTetr;
+								faillingTetr = nullptr;
+							}
+							break;
+							case SDLK_LEFT:
+								level--;
+								if (level < 0)
+									level = 0;
+
+								createAndSetText("Start Level " + std::to_string(level + 1) + "  Press left or right", &startLevel, &startLevelW, &startLevelH);
+							break;
+							case SDLK_RIGHT:
+								level++;
+								if (level > 9)
+									level = 9;
+								createAndSetText("Start Level " + std::to_string(level + 1) + "  Press left or right", &startLevel, &startLevelW, &startLevelH);
+
 							break;
 						}
 					}
@@ -679,6 +781,7 @@ int WinMain(HINSTANCE hInstance,
 							faillingTetr->storeY++;
 							faillingTetr->rect.y = align(faillingTetr->storeY, 16);
 							simulatedTime += 1 / cellFrames[level][0];
+							std::cout << "time division " << cellFrames[level][0] << " " << level << std::endl;
 							rotateTime = 500;
 						}
 
@@ -733,7 +836,16 @@ int WinMain(HINSTANCE hInstance,
 			else
 			{
 				if (!gameover)
+				{
 					createTetr(rand() % 6);
+					if (faillingTetr->constructIndex == lastIndex)
+					{
+						delete faillingTetr;
+						faillingTetr = nullptr;
+						createTetr(rand() % 6);
+					}
+					lastIndex = faillingTetr->constructIndex;
+				}
 			}
 
 			for (int i = 0; i < 21; i++)
@@ -805,6 +917,33 @@ int WinMain(HINSTANCE hInstance,
 		}
 		else
 		{
+			// bg minos
+
+			if (!startTexture)
+				startTexture = SDL_CreateTexture(Globals::renderer, SDL_PIXELFORMAT_ARGB32,SDL_TEXTUREACCESS_TARGET,1280,720);
+
+			SDL_SetRenderTarget(Globals::renderer,startTexture);
+			for(Tetromino* mino : menuMinos)
+				mino->draw();
+			SDL_SetRenderTarget(Globals::renderer,NULL);
+		
+			scrollingRect.x = 0;
+			scrollingRect.y = 0;
+			scrollingRect.w = 1280;
+			scrollingRect.h = 760;
+
+			SDL_RenderCopyF(Globals::renderer,startTexture,NULL,&scrollingRect);
+
+			SDL_FRect background;
+			background.x = 0;
+			background.y = 0;
+			background.w = 1280;
+			background.h = 720;
+
+			SDL_SetRenderDrawColor(Globals::renderer,0,0,0,64);
+			SDL_RenderFillRectF(Globals::renderer, &background);
+			SDL_SetRenderDrawColor(Globals::renderer,255,255,255,255);
+			
 			SDL_FRect tetrisDst;
 			tetrisDst.x = 440 - ((logoW * 2) / 2);
 			tetrisDst.y = 235 - ((logoH * 2) / 2);
@@ -828,6 +967,15 @@ int WinMain(HINSTANCE hInstance,
 			pressToPlayDst.h = pressH;
 
 			SDL_RenderCopyF(renderer,pressToPlay,NULL,&pressToPlayDst);
+
+			SDL_FRect startLevelWW;
+			startLevelWW.x = 432 - (startLevelW / 2);
+			startLevelWW.y = 500 - (startLevelH / 2);
+			startLevelWW.w = startLevelW;
+			startLevelWW.h = startLevelH;
+
+			SDL_RenderCopyF(renderer,startLevel,NULL,&startLevelWW);
+			
 		}
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
 		SDL_RenderPresent(renderer);

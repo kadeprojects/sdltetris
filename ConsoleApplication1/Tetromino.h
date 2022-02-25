@@ -17,6 +17,9 @@ public:
 	SDL_FRect centerPoint;
 
 	float storeY = 0;
+	float storeX = 0;
+
+	float change = 0;
 
 	void addPiece(int lane, int col, int color)
 	{
